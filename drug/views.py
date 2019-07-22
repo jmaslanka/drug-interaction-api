@@ -1,4 +1,5 @@
-from django.db.models import Q
+from django.db.models import Count, Window, F
+from django.db.models.functions import DenseRank
 from rest_framework import status
 from rest_framework.generics import ListCreateAPIView
 from rest_framework.permissions import AllowAny
@@ -40,7 +41,7 @@ class DrugSearchView(ListCreateAPIView):
         )
 
 
-class DrugInteractionSearch(APIView):
+class DrugInteractionSearchView(APIView):
     permission_classes = (AllowAny,)
     authentication_classes = []
 
@@ -76,4 +77,30 @@ class DrugInteractionSearch(APIView):
         return Response(
             interactions_data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class DrugInteractionRankingView(APIView):
+    permission_classes = (AllowAny,)
+    authentication_classes = []
+
+    def get(self, request, *args, **kwargs):
+        qs = Drug.objects.prefetch_related('interactions').annotate(
+            interactions_count=Count('interactions'),
+            rank=Window(
+                expression=DenseRank(),
+                order_by=F('interactions_count').desc(),
+            ),
+        ).order_by('rank')[:10]
+
+        return Response(
+            [
+                {
+                    'name': drug.name,
+                    'rxcui': drug.rxcui,
+                    'interactions_count': drug.interactions_count,
+                    'rank': drug.rank,
+                } for drug in qs
+            ],
+            status=status.HTTP_200_OK,
         )
